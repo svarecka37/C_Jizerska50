@@ -1,173 +1,156 @@
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #define IN "jizerska50.txt"
 #define OUT "vysledkova_listina.txt"
 #define BUFSIZE 200
-#define DELIMITERS " \t\n:"
+#define MAX 200
+#define DELIM ";"
 
-typedef struct CAS {
-    int hodiny;
-    int minuty;
-    int sekundy;
-} CAS;
-
-typedef struct ZAVODNIK {
-    int poradi;
+typedef struct {
     int cislo;
     char prijmeni[30];
     char jmeno[30];
     int rocnik;
     char stat[5];
-    CAS cas;
-    int totalSec;   // celkový čas v sekundách
+    int casSec;   // čas v sekundách
 } ZAVODNIK;
 
-int casNaSekundy(const CAS time) {
-    return time.hodiny * 3600 + time.minuty * 60 + time.sekundy;
+// převod HH:MM:SS -> sekundy
+int casNaSekundy(const char *cas) {
+    int h, m, s;
+    sscanf(cas, "%d:%d:%d", &h, &m, &s);
+    return h * 3600 + m * 60 + s;
 }
 
-CAS sekundyNaCas(int sec) {
-    CAS t;
-    t.hodiny = sec / 3600;
-    sec %= 3600;
-    t.minuty = sec / 60;
-    t.sekundy = sec % 60;
-    return t;
+// převod sekund -> h,m,s
+void sekundyNaCas(int sec, int *h, int *m, int *s) {
+    *h = sec / 3600;
+    *m = (sec / 60) % 60;
+    *s = sec % 60;
 }
 
-void swap(ZAVODNIK *a, ZAVODNIK *b) {
-    ZAVODNIK tmp = *a;
-    *a = *b;
-    *b = tmp;
-}
-
-void bubbleSort(ZAVODNIK *zav, int pocet) {
-    for (int i = 0; i < pocet - 1; i++) {
-        for (int j = 0; j < pocet - i - 1; j++) {
-            if (zav[j].totalSec > zav[j+1].totalSec) {
-                swap(&zav[j], &zav[j+1]);
-            }
-        }
-    }
-}
-
-int readFile(ZAVODNIK *zav) {
+// načtení dat ze souboru
+int nactiSoubor(ZAVODNIK *zav) {
     FILE *fr;
     char buffer[BUFSIZE];
     int pocet = 0;
 
     if ((fr = fopen(IN, "r")) == NULL) {
         printf("Chyba při otevírání souboru %s.\n", IN);
-        return EXIT_FAILURE;
+        return 0;
     }
 
-    while (fgets(buffer, BUFSIZE, fr) != NULL) {
-        if (strlen(buffer) < 5) continue;
-        ZAVODNIK z;
-        int hh, mm, ss;
-        if (sscanf(buffer, "%d %d %s %s %d %s %d:%d:%d",
-                   &z.poradi, &z.cislo, z.prijmeni, z.jmeno,
-                   &z.rocnik, z.stat, &hh, &mm, &ss) == 9) {
-            z.cas.hodiny = hh;
-            z.cas.minuty = mm;
-            z.cas.sekundy = ss;
-            z.totalSec = casNaSekundy(z.cas);
-            zav[pocet++] = z;
-        }
-    }
+    while (fgets(buffer, sizeof(buffer), fr) != NULL) {
+        char *tok = strtok(buffer, DELIM);
+        if (!tok) continue;
+        zav[pocet].cislo = atoi(tok);
 
+        tok = strtok(NULL, DELIM);
+        sscanf(tok, "%[^,], %s (%d)", zav[pocet].prijmeni, zav[pocet].jmeno, &zav[pocet].rocnik);
+
+        tok = strtok(NULL, DELIM);
+        strcpy(zav[pocet].stat, tok);
+
+        tok = strtok(NULL, ";\n");
+        zav[pocet].casSec = casNaSekundy(tok);
+
+        pocet++;
+    }
     fclose(fr);
     return pocet;
 }
 
-void vypisStartovniListinu(ZAVODNIK *zav, int pocet) {
-    printf("VYSLEDKOVA LISTINA - JIZERSKA 50\n");
-    printf("Poradi | Cislo | Prijmeni | Jmeno | Rocnik | Stat | Cas\n");
-    for (int i = 0; i < pocet; i++) {
-        printf("%6d %6d %-15s %-15s %6d %4s %02d:%02d:%02d\n",
-               zav[i].poradi,
-               zav[i].cislo,
-               zav[i].prijmeni,
-               zav[i].jmeno,
-               zav[i].rocnik,
-               zav[i].stat,
-               zav[i].cas.hodiny,
-               zav[i].cas.minuty,
-               zav[i].cas.sekundy);
+// výpis startovní listiny
+void vypisStartovniListinu(ZAVODNIK *zav, int n) {
+    printf("STARTOVNI LISTINA - JIZERSKA 50\n");
+    printf("Cislo | Prijmeni | Jmeno | Rocnik | Stat | Cas\n");
+    for (int i = 0; i < n; i++) {
+        int h,m,s;
+        sekundyNaCas(zav[i].casSec, &h, &m, &s);
+        printf("%5d %-12s %-12s %6d %4s %02d:%02d:%02d\n",
+               zav[i].cislo, zav[i].prijmeni, zav[i].jmeno,
+               zav[i].rocnik, zav[i].stat, h, m, s);
     }
-    printf("Celkový počet závodníků: %d\n", pocet);
+    printf("Celkový počet závodníků: %d\n", n);
 }
 
-void vypisNejmladsiho(ZAVODNIK *zav, int pocet) {
-    time_t now = time(NULL);
-    struct tm *t = localtime(&now);
-    int currentYear = t->tm_year + 1900;
-
-    ZAVODNIK nejml = zav[0];
-    for (int i = 1; i < pocet; i++) {
-        if (zav[i].rocnik > nejml.rocnik) {
-            nejml = zav[i];
-        }
+// nejmladší závodník
+void vypisNejmladsiho(ZAVODNIK *zav, int n) {
+    int idx = 0;
+    for (int i = 1; i < n; i++) {
+        if (zav[i].rocnik > zav[idx].rocnik) idx = i;
     }
-
-    int vek = currentYear - nejml.rocnik;
-    printf("Nejmladší závodník: %s %s, rok %d, věk %d let.\n",
-           nejml.jmeno, nejml.prijmeni, nejml.rocnik, vek);
+    int rok = localtime(&(time_t){time(NULL)})->tm_year + 1900;
+    printf("Nejmladší závodník: %s %s (%d), %d let\n",
+           zav[idx].jmeno, zav[idx].prijmeni,
+           zav[idx].rocnik, rok - zav[idx].rocnik);
 }
 
-void pocetCechu(ZAVODNIK *zav, int pocet) {
+// počet českých závodníků
+void pocetCechu(ZAVODNIK *zav, int n) {
     int count = 0;
-    for (int i = 0; i < pocet; i++) {
+    for (int i = 0; i < n; i++)
         if (strcmp(zav[i].stat, "CZE") == 0) count++;
-    }
     printf("Počet českých závodníků: %d\n", count);
 }
 
-void writeToFile(ZAVODNIK *zav, int pocet) {
-    FILE *fw;
-    if ((fw = fopen(OUT, "w")) == NULL) {
-        printf("Chyba při otevírání výstupního souboru %s.\n", OUT);
+// prohození
+void swap(ZAVODNIK *a, ZAVODNIK *b) {
+    ZAVODNIK tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+// bublinové třídění podle času
+void bblSort(ZAVODNIK *zav, int n) {
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (zav[j].casSec > zav[j+1].casSec) {
+                swap(&zav[j], &zav[j+1]);
+            }
+        }
+    }
+}
+
+// zápis výsledků do souboru
+void ulozVysledky(ZAVODNIK *zav, int n) {
+    FILE *fw = fopen(OUT, "w");
+    if (!fw) {
+        printf("Chyba při zápisu do souboru %s.\n", OUT);
         return;
     }
 
     fprintf(fw, "VYSLEDKOVA LISTINA - JIZERSKA 50\n");
     fprintf(fw, "Poradi | Cislo | Prijmeni | Jmeno | Rocnik | Stat | Cas | Ztrata\n");
 
-    int best = zav[0].totalSec;
-    for (int i = 0; i < pocet; i++) {
-        int diff = zav[i].totalSec - best;
-        CAS c = sekundyNaCas(diff);
-        fprintf(fw, "%6d %6d %-15s %-15s %6d %4s %02d:%02d:%02d %+02d:%02d:%02d\n",
-                i+1,
-                zav[i].cislo,
-                zav[i].prijmeni,
-                zav[i].jmeno,
-                zav[i].rocnik,
-                zav[i].stat,
-                zav[i].cas.hodiny,
-                zav[i].cas.minuty,
-                zav[i].cas.sekundy,
-                c.hodiny, c.minuty, c.sekundy);
+    int best = zav[0].casSec;
+    for (int i = 0; i < n; i++) {
+        int h,m,s,dh,dm,ds;
+        sekundyNaCas(zav[i].casSec, &h, &m, &s);
+        sekundyNaCas(zav[i].casSec - best, &dh, &dm, &ds);
+        fprintf(fw, "%5d %6d %-12s %-12s %6d %4s %02d:%02d:%02d +%02d:%02d:%02d\n",
+                i+1, zav[i].cislo, zav[i].prijmeni, zav[i].jmeno,
+                zav[i].rocnik, zav[i].stat, h, m, s, dh, dm, ds);
     }
-
     fclose(fw);
     printf("Soubor %s byl vytvořen.\n", OUT);
 }
 
 int main() {
-    ZAVODNIK zav[BUFSIZE];
-    int pocet = readFile(zav);
-    if (pocet <= 0) return EXIT_FAILURE;
+    ZAVODNIK zav[MAX];
+    int n = nactiSoubor(zav);
+    if (n == 0) return 1;
 
-    vypisStartovniListinu(zav, pocet);
-    vypisNejmladsiho(zav, pocet);
-    pocetCechu(zav, pocet);
+    vypisStartovniListinu(zav, n);
+    vypisNejmladsiho(zav, n);
+    pocetCechu(zav, n);
 
-    bubbleSort(zav, pocet);
-    writeToFile(zav, pocet);
+    bblSort(zav, n);
+    ulozVysledky(zav, n);
 
-    return EXIT_SUCCESS;
+    return 0;
 }
+
